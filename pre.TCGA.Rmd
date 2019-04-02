@@ -1,0 +1,196 @@
+---
+title: "TCGA LIHC preprocess"
+date: "3/27/2019"
+output: html_document
+---
+
+### Download and process
+
+Doawload the HTSeq counts of LIHC samples and clinic data from TCGA [GDC data portal](https://portal.gdc.cancer.gov/exploration?filters=%7B%22op%22%3A%22and%22%2C%22content%22%3A%5B%7B%22op%22%3A%22in%22%2C%22content%22%3A%7B%22field%22%3A%22cases.primary_site%22%2C%22value%22%3A%5B%22Liver%20and%20intrahepatic%20bile%20ducts%22%5D%7D%7D%5D%7D)
+
+
+GDC.h38 GENCODE v22 GTF file was downloaded from [here](https://gdc.cancer.gov/about-data/data-harmonization-and-generation/gdc-reference-files).
+
+#### Organize the count files
+```{bash, eval=F}
+gunzip gdc_download_20190326_LIHC_HTseq_counts.tar.gz
+tar xvf gdc_download_20190326_LIHC_HTseq_counts.tar
+for i in *; do gunzip $i/*.gz; done
+
+gunzip gencode.v22.annotation.gtf.gz 
+cat gencode.v22.annotation.gtf | grep -v ^## | awk -F'\t' -vOFS='\t' '{if($3 == "gene") print $1,$4,$5,$9}'|sed -r 's/[^\"]*([\"][^\"]*[\"][,]?)[^\"]*/\1/g' |sed s'/\""/\t/g'|sed s'/\"//g'|cut -f1,2,4 > tmp.1.txt
+cat gencode.v22.annotation.gtf | grep -v ^## | awk -F'\t' -vOFS='\t' '{if($3 == "gene") print $1,$4,$5}' > tmp.2.txt
+paste tmp.2.txt tmp.1.txt |awk -vOFS="\t" '{print $4,$1,$2,$3,$6,$5}' > hg38.annotation.txt
+rm tmp.1.txt tmp.2.txt 
+```
+
+
+```{R}
+data.dir <- '~/hcc/data/TCGA'
+# Sample info
+sheet <- read.delim(file.path(data.dir, 'clinical/gdc_sample_sheet.2019-03-26.tsv'), header=T)
+sheet$File.Name <- gsub('.gz$', '', sheet$File.Name)
+sheet$Sample.ID <- as.character(sheet$Sample.ID)
+```
+
+```{R, eval=F}
+extractFiles <- function(nrow) {
+  row <- sheet[nrow, ]
+  file <- read.delim2(file.path(data.dir, paste0('htseq.count/', row$File.ID, '/', row$File.Name)), header=F)
+  colnames(file) <- c('ESID', row$Sample.ID)
+  file
+}
+
+tmp <- lapply(seq(1, nrow(sheet)), extractFiles)
+LIHC.counts <- Reduce(function(x, y) merge(x, y, by='ESID'), tmp)
+write.table(LIHC.counts, file = file.path(data.dir, 'mRNA/LIHC.counts.txt'), sep="\t", quote = F)
+```
+
+
+
+### Exploratory data analysis 
+
+```{R set up}
+suppressPackageStartupMessages({
+  library(dplyr)
+  library(knitr)
+  library(ggplot2)
+})
+```
+
+There are total 424 samples, 374 tumor and 50 normal, from 371 subjects having HCC.
+
+##### Tumor types
+```{R}
+# Subject info
+clinic <- read.delim(file.path(data.dir, 'clinical/clinical.tsv'))
+length(unique(sheet$Case.ID))
+table(sheet$Project.ID)
+
+
+type_summary <- sheet %>% 
+  select(Sample.ID, Sample.Type) %>%
+  group_by(Sample.Type) %>%
+  summarise(n = n()) %>%
+  mutate(freq = n / sum(n))
+
+kable(type_summary, caption="Tumor type", format="markdown")
+```
+
+
+##### Gender
+```{R}
+g_counts <- clinic %>%
+  group_by(gender) %>%
+  summarise(counts = n())
+  
+ggplot(g_counts, aes(x = gender, y = counts)) +
+  geom_bar(stat = 'identity', width=0.5, fill = c('#bcb58c', '#62a3bf')) +
+  geom_text(aes(label= counts), vjust=0, hjust=0.45, size=3.2) +
+  theme_bw() + theme(aspect.ratio = 4/3)
+```
+
+
+##### Race
+```{R}
+r_counts <- clinic %>%
+  group_by(race) %>%
+  summarize(counts = n())
+
+ggplot(r_counts, aes(x=race, y=counts, fill=race)) +
+  geom_bar(stat='identity', width=0.6) + 
+  scale_fill_brewer(palette='Accent') +
+  scale_y_continuous(limits=c(0,200)) +
+  geom_text(aes(label= counts), vjust=0, hjust=0.45, size=3.2) +
+  theme_bw() + ylab("") +
+  theme(axis.text.x = element_text(angle = 55, hjust = 1, size = 8.5),
+                     legend.position = "none")
+  
+
+```
+
+
+##### Age
+There is no age at initial diagnosis in files downloaded from TCGA portal, so I extracted them from Silvia's files.
+```{R, eval=F}
+old.clin <- read.delim(file.path(data.dir, 'clinical/old/All_CDEs.txt'), header = F)
+old.clin <- as.data.frame(t(old.clin))
+colnames(old.clin) <- as.character(unlist(old.clin[1,]))
+old.clin <- old.clin[-1, ]
+rownames(old.clin) <- seq(1, nrow(old.clin))
+old.clin$bcr_patient_barcode <- toupper(old.clin$bcr_patient_barcode)
+colnames(old.clin)[1] <- 'submitter_id'
+clinic <- merge(clinic, old.clin[, c('submitter_id', 'age_at_initial_pathologic_diagnosis')], by='submitter_id')
+write.table(clinic, file.path(data.dir, 'clinical/clinical.tsv'), sep="\t", quote = F)
+```
+
+```{R age}
+clinic$age_at_initial_pathologic_diagnosis <- as.numeric(clinic$age_at_initial_pathologic_diagnosis)
+age_sum <- clinic %>%
+  select(age_at_initial_pathologic_diagnosis) %>%
+  summarise(mean.age = mean(age_at_initial_pathologic_diagnosis, na.rm = T))
+
+ggplot(clinic, aes(age_at_initial_pathologic_diagnosis)) +
+  geom_histogram(aes(y=..count..), alpha=0.5, fill = '#bcd4e6', binwidth=0.8) +
+  geom_vline(data=age_sum, aes(xintercept=mean.age), lty=2, size=1) +
+  scale_y_continuous(labels=scales::comma) +
+  ylab("Counts") +
+  ggtitle("Age at initial pathologic diagnosis") + 
+  labs(x="Ages") +
+  theme_bw() 
+
+```
+
+
+#### Stage
+```{R}
+clinic$tumor_stage <- toupper(clinic$tumor_stage)
+clinic$tumor_stage <- gsub('^STAGE ', '', clinic$tumor_stage)
+clinic$tumor_stage <- gsub('[ABC]$', '', clinic$tumor_stage)
+clinic$tumor_stage[!(clinic$tumor_stage %in% c("I","II","III","IV"))] <- "NA"
+
+stage_sum <- clinic %>%
+  group_by(tumor_stage) %>%
+  summarise(counts = n())
+
+ggplot(stage_sum, aes(x=tumor_stage, y=counts, fill=tumor_stage)) +
+  geom_bar(stat='identity', width=0.6) + 
+  scale_fill_brewer(palette='Pastel1') +
+#$scale_y_continuous(limits=c(0,200)) +
+  geom_text(aes(label= counts), vjust=0, hjust=0.45, size=3.2) +
+  theme_bw() + ylab("") +
+  theme(legend.position = "none")
+```
+
+
+
+### Annotate Ensembl IDs and select representative replicated genes
+
+```{R, eval=F}
+anno <- read.delim('~/hcc/data/annotation/hg38.annotation.txt', header = T, row.names = 1)
+gene.map <- data.frame(ESID=rownames(anno), gene=anno$name)
+LIHC.counts <- read.delim(file.path(data.dir, 'mRNA/LIHC.counts.txt'))
+final <- merge(LIHC.counts, gene.map, by='ESID')
+final <- final[, -1]
+
+# select representative genes by IQR
+IQR2 <- function(sub) {
+  if (length(sub) == 1) {
+    return (sub)
+  } else {
+    name <- as.character(unique(sub[, ncol(sub)]))
+    sub <- sub[, -ncol(sub)]
+    iqrScore <- apply(sub, 1, IQR)
+    return (cbind(name, sub[which.max(iqrScore), ]))
+  }
+}
+
+gene.split <- split(1:nrow(final), final$gene)
+filt.counts <- as.data.frame(t(sapply(gene.split, function(x) IQR2(final[x, ]))))
+filt.counts <- filt.counts[, -1]
+```
+
+### Save into Rdata
+```{R save, eval=F}
+save(filt.counts, clinic, old.clin, sheet, file = file.path(data.dir, 'hcc_TCGA.Rdata'))
+```
