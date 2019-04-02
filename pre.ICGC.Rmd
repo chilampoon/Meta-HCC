@@ -1,0 +1,160 @@
+---
+title: "ICGC preprocess"
+date: "3/27/2019"
+output: html_document
+---
+
+### Download files
+
+LICA-FR and LIRI-JP files were downloaded from [here](https://dcc.icgc.org/projects/details?filters=%7B%22project%22:%7B%22primarySite%22:%7B%22is%22:%5B%22Liver%22%5D%7D,%22availableDataTypes%22:%7B%22is%22:%5B%22exp_seq%22%5D%7D%7D%7D&projects=%7B%22from%22:1%7D).
+
+### LIRI-JP
+
+- Alignment: bwa
+- Platform: Illumina HiSeq
+- Annotation: GRCh37
+
+```{R}
+data.dir <- '~/hcc/data/ICGC'
+subject <- read.delim(file.path(data.dir, 'LIRI-JP/donor.LIRI-JP.tsv'))
+sample <- read.delim(file.path(data.dir, 'LIRI-JP/sample.LIRI-JP.tsv'))
+counts <- read.delim(file.path(data.dir, 'LIRI-JP/raw.counts.txt'))
+```
+
+
+```{R, count data, eval=F}
+sets <- split(counts, counts$icgc_sample_id)
+which.max(table(counts$icgc_sample_id))
+
+count.df <- data.frame(matrix(ncol=0, nrow=20445))
+rownames(count.df) <- sets[['SA595460' ]]$gene_id -> count.df$gene_id
+for (i in 1:length(sets)) {
+  tmp.df <- sets[[i]][,c(2,3)]
+  colnames(tmp.df) <- c("gene_id", names(sets)[i])
+  count.df <- merge(count.df, tmp.df, by="gene_id", all = T)
+}
+rownames(count.df) <- count.df$gene_id
+count.df <- count.df[,-1]
+count.df <- count.df[which(!rowSums(is.na(count.df)) %in% seq(ncol(count.df)-10, ncol(count.df)+10)), ]
+write.table(count.df, file.path(data.dir, 'LIRI-JP/count.matrix.txt'), sep="\t", quote = F)
+```
+
+
+### Samples explorary data analyses
+
+```{R setup}
+suppressPackageStartupMessages({
+  library(dplyr)
+  library(knitr)
+  library(ggplot2)
+  library(stringr)
+})
+```
+
+
+```{R}
+count.df <- read.delim(file.path(data.dir, 'LIRI-JP/count.matrix.txt'))
+sample.id <- colnames(count.df)
+sample <- sample[sample$icgc_sample_id %in% sample.id,]
+table(gsub('^.*_', '', sample$submitted_sample_id))
+length(unique(sample$icgc_donor_id))
+subject <- subject[subject$icgc_donor_id %in% unique(sample$icgc_donor_id), ]
+```
+
+#### Sex
+```{R}
+g_counts <- subject %>%
+  group_by(donor_sex) %>%
+  summarise(counts = n())
+  
+ggplot(g_counts, aes(x = donor_sex, y = counts)) +
+  geom_bar(stat = 'identity', width=0.5, fill = c('#bcb58c', '#62a3bf')) +
+  geom_text(aes(label= counts), vjust=0, hjust=0.45, size=3.2) +
+  theme_bw() + theme(aspect.ratio = 4/3)
+
+```
+
+
+#### Race
+I can't find the race information from the downloaded files as well as ICGC data portal... Maybe they were all Japenese?
+
+
+#### Age
+```{R age}
+age_sum <- subject %>%
+  select(donor_age_at_diagnosis) %>%
+  summarise(mean.age = mean(donor_age_at_diagnosis, na.rm = T))
+
+ggplot(subject, aes(donor_age_at_diagnosis)) +
+  geom_histogram(aes(y=..count..), alpha=0.5, fill = '#bcd4e6', binwidth=1) +
+  geom_vline(data=age_sum, aes(xintercept=mean.age), lty=2, size=1) +
+  scale_y_continuous(labels=scales::comma) +
+  ylab("Density") +
+  ggtitle("Age at initial pathologic diagnosis") + 
+  labs(x="Ages") +
+  theme_bw() 
+
+```
+
+
+#### Stage
+```{R stage}
+# Replace 1,2,3,4 into latin digits
+latin <- c('I', 'II', 'III', 'IV')
+names(latin) <- c(1:4)
+subject$donor_tumour_stage_at_diagnosis <- str_replace_all(subject$donor_tumour_stage_at_diagnosis, latin)
+
+stage_sum <- subject %>%
+  group_by(donor_tumour_stage_at_diagnosis) %>%
+  summarise(counts = n())
+
+ggplot(stage_sum, aes(x=donor_tumour_stage_at_diagnosis, y=counts, fill=donor_tumour_stage_at_diagnosis)) +
+  geom_bar(stat='identity', width=0.6) + 
+  scale_fill_brewer(palette='Pastel1') +
+#$scale_y_continuous(limits=c(0,200)) +
+  geom_text(aes(label= counts), vjust=0, hjust=0.45, size=3.2) +
+  theme_bw() + ylab("") + xlab("Tumor Stage") +
+  theme(legend.position = "none")
+```
+
+
+#### Save into Rdata
+```{R, eval=F}
+save(count.df, sample, subject, file=file.path(data.dir, 'hcc_LIRI-JP.Rdata'))
+```
+
+
+### LICA-FR
+
+- Alignment: TopHat v2.0.14
+- Platform: Illumina HiSeq
+- Annotation: GRCh37
+
+```{R load, eval=F}
+donor <- read.delim(file.path(data.dir, 'LICA-FR/donor.LICA-FR.tsv'))
+samples <- read.delim(file.path(data.dir, 'LICA-FR/sample.LICA-FR.tsv'))
+exp <- read.delim(file.path(data.dir, 'LICA-FR/raw.counts.txt'))
+```
+
+#### Process raw counts
+```{R, eval=F}
+sets <- split(exp, exp$icgc_sample_id)
+max(table(exp$icgc_sample_id))
+
+count.df <- data.frame(matrix(ncol=0, nrow=max(table(exp$icgc_sample_id))))
+rownames(count.df) <- sets[[1]]$gene_id -> count.df$gene_id
+for (i in 1:length(sets)) {
+  tmp.df <- sets[[i]][,c(2,3)]
+  colnames(tmp.df) <- c("gene_id", names(sets)[i])
+  count.df <- merge(count.df, tmp.df, by="gene_id", all = T)
+}
+rownames(count.df) <- count.df$gene_id
+count.df <- count.df[,-1]
+count.df <- count.df[which(!rowSums(is.na(count.df)) %in% seq(ncol(count.df)-10, ncol(count.df)+10)), ]
+#write.table(count.df, file.path(data.dir, 'LIRI-JP/count.matrix.txt'))
+
+```
+
+WTF the raw counts of each gene are all the same across samples, I have reported this to ICGC forum ([post](https://discuss.icgc.org/t/repeated-raw-count-values-in-lica-fr-dataset/301)).
+
+And I don't know how they got the normalized read counts so discard this dataset temporily.
