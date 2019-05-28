@@ -1,0 +1,104 @@
+---
+title: "GSE10140 & GSE10141"
+date: "4/3/2019"
+output: html_document
+---
+
+### Download and process
+
+[GSE10143](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE10143) (Gene Expression in Fixed Tissues and Outcome in Hepatocellular Carcinoma) is a super-series of
+
+1. GSE10140 Liver Training Set 
+
+2. GSE10141 HCC Training 
+
+3. GSE10142 Validation Set included tissue samples from 234 patients (92 patients at the Mount Sinai School of Medicine in New York, 46 at Hospital Clínic Barcelona, and 96 at the National Cancer Institute of Milan)
+
+Here only GSE10140 & 10141 retained, tumor and adjacent nontumoral samples were from 82 Japanese patients.
+
+I may use the serial matrix, note that how they processed https://www.nejm.org/doi/suppl/10.1056/NEJMoa0804525/suppl_file/nejm_hoshida_1995sa1.pdf
+
+
+```{bash, eval=F}
+cat GSE10140_series_matrix.txt | grep '^!Sample_' | sed 's/^!//g' > 10140.clin.txt
+cat GSE10141_series_matrix.txt | grep '^!Sample_' | sed 's/^!//g' > 10141.clin.txt
+```
+
+```{R setup}
+suppressPackageStartupMessages({
+  library(dplyr)
+  library(knitr)
+  library(ggplot2)
+  library(stringr)
+})
+
+```
+
+
+### Load
+```{R}
+data.dir <- '~/hcc/data/GSE10140GSE10141'
+clin.1 <- read.delim(file=file.path(data.dir, '10140.clin.txt'), header=F, stringsAsFactors=F)
+clin.1 <- as.data.frame(t(clin.1))
+colnames(clin.1) <- unlist(clin.1[1, ])
+clin.1 <- clin.1[-1, ]
+rownames(clin.1) <- seq(1, nrow(clin.1))
+
+clin.2 <- read.delim(file=file.path(data.dir, '10141.clin.txt'), header=F, stringsAsFactors=F)
+clin.2 <- as.data.frame(t(clin.2))
+colnames(clin.2) <- unlist(clin.2[1, ])
+clin.2 <- clin.2[-1, ]
+rownames(clin.2) <- seq(1, nrow(clin.2))
+```
+
+
+#### Clean clinic data
+```{R clean1}
+clin.1 <- data.frame(lapply(clin.1, as.character), stringsAsFactors=F)
+tmp1 <- c(as.character(unlist(clin.1[79, 1:12])), "ethnicity: Japanese", "NA", as.character(unlist(clin.1[79, 13:17])))
+tmp2 <- as.character(unlist(clin.1[79, 20:ncol(clin.1)]))
+clin.1[79, ] <- c(tmp1, tmp2)
+
+clin.1[, 10] <- gsub('^bkg_id:', '', clin.1[, 10])
+
+for (i in c(11,12,16,17,18,19)) {
+  clin.1[, i] <- gsub('^.*): ', '', clin.1[, i])
+}
+
+for(i in c(10, 13:15)) {
+  clin.1[, i] <- gsub('^.*: ', '', clin.1[, i])
+}
+
+colnames(clin.1)[10:19] <- c("Sample_ID", "Survival_time_days", "Survival_status", "Ethnicity", "EGF_level", "Prognostic_prediction",  "Recurrence_status", "Time_to_recurrence_days", "Early_recurrence_status", "Late_recurrence_status")
+```
+
+
+```{R clean2}
+clin.2$Sample_title <- gsub("[\\(\\)]", "", unlist(regmatches(clin.2$Sample_title , gregexpr("\\(.*?\\)", clin.2$Sample_title ))))
+
+for (i in c(10,14,16,17)) {
+  clin.2[, i] <- gsub('^.*: ', '', clin.2[, i])
+}
+
+for (i in c(11,12,13,15)) {
+  clin.2[, i] <- gsub('^.*): ', '', clin.2[, i])
+}
+
+colnames(clin.2)[10:17] <- c("Prognostic_prediction", "Survival_time_days", "Survival_status", "HBV(hbs antigen)", "HCV", "Alcohol(cumulative intake)", "Microvascular_invasion", "Satellite_lesions")
+clin.2$Survival_status <- gsub('^.*) : ', '', clin.2$Survival_status)
+```
+
+
+### Sample type
+```{R type}
+table(clin.1$Sample_source_name_ch1) #adj normal
+table(clin.2$Sample_source_name_ch1) #HCC
+table(clin.1$Recurrence_status)
+```
+
+
+### Save into Rdata
+```{R save}
+save(clin.1, clin.2, file=file.path(data.dir, 'hcc_GSE10143.Rdata'))
+```
+

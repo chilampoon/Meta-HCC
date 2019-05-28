@@ -1,0 +1,41 @@
+---
+title: "GSE46444"
+date: "4/4/2019"
+output: html_document
+---
+
+
+### Download and process
+
+[GSE46444](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE46444):
+
+- Platform: GPL13369	Illumina Human Whole-Genome DASL HT
+- AS-FFPE tissues of 83 hepatocellular carcinoma (HCC) and 47 liver cirrhosis samples
+
+```{bash,eval=F}
+cat GSE46444_series_matrix.txt | grep '^!Sample' | sed 's/^!//g' > clin.info.txt
+```
+
+
+```{R}
+data.dir <- '~/hcc/data/GSE46444'
+clin <- read.delim(file.path(data.dir, 'clin.info.txt'), header=F)
+clin <- as.data.frame(t(clin))
+colnames(clin) <- unlist(clin[1,])
+clin <- clin[-1, ]
+rownames(clin) <- seq(1, nrow(clin))
+```
+
+
+### Sample type
+```{R}
+colnames(clin)[11] <- 'Tissue_type'
+clin$Tissue_type <- gsub('^.*: ', '', clin$Tissue_type)
+table(clin$Tissue_type)
+```
+
+
+### Save Rdata
+```{R}
+save(clin, file=file.path(data.dir, 'hcc_GSE46444.Rdata'))
+```

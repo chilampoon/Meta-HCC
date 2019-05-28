@@ -1,0 +1,204 @@
+---
+title: "GSE14520"
+output: html_document
+---
+
+There are 2 cohorts in [GSE14520](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=gse14520), they recruited totally 247 HCC patients from Liver Cancer Institute (LCI), China:
+
+Group 1:
+
+  - Platform: Affymetrix GeneChip HG-U133A 2.0 arrays GPL571
+  - Paired tumor and non-tumor samples of 22 patients
+
+Group 2:
+
+  - Platform: Affymetrix HT Human Genome U133A Array GPL3921
+  - Tumor and non-tumor samples of the rest of 225 patients & more?
+ 
+  
+```{R set up}
+suppressPackageStartupMessages({
+  library(dplyr)
+  library(knitr)
+  library(ggplot2)
+  library(stringr)
+})
+
+```
+
+
+```{bash, eval=F}
+cat GSE14520-GPL571_series_matrix.txt |grep -v ^\!|head -2|tr '\t' '\n'|sed 's/"//g'|sed '1d;2d' > group.1.id.txt
+cat GSE14520-GPL3921_series_matrix.txt |grep -v ^\!|head -2|tr '\t' '\n'|sed 's/"//g'|sed '1d;2d' > group.2.id.txt
+while read f; do mv CEL/$f.CEL CEL/group1; done < group.1.id.txt 
+while read f; do mv CEL/$f.CEL CEL/group2; done < group.2.id.txt
+```
+
+
+  
+## Load data
+```{R}
+data.dir <- '~/hcc/data/GSE14520'
+clinic <- read.delim(file.path(data.dir, 'GSE14520_Extra_Supplement.txt'))
+dim(clinic)
+c1.list <- read.delim(file.path(data.dir, 'group.1.id.txt'), header = F)
+c2.list <- read.delim(file.path(data.dir, 'group.2.id.txt'), header = F)
+```
+
+## Process
+```{R process}
+clinic$Affy_GSM <- as.character(clinic$Affy_GSM)
+clinic$TNM.staging <- gsub('[ABC]$', '', clinic$TNM.staging)
+clinic$TNM.staging <- gsub('\\.', 'NA', clinic$TNM.staging)
+g1.clinic <- clinic[clinic$Affy_GSM %in% c1.list$V1, ]
+g2.clinic <- clinic[clinic$Affy_GSM %in% c2.list$V1, ]
+
+# Patient number
+length(unique(gsub('[AB]$', '', g1.clinic$LCS.ID)))
+length(unique(gsub('[AB]$', '', g2.clinic$LCS.ID)))
+```
+
+### Group1 GPL571
+
+```{R}
+type_summary <- g1.clinic %>% 
+  select(ID, Tissue.Type) %>%
+  group_by(Tissue.Type) %>%
+  summarise(n = n()) %>%
+  mutate(freq = n / sum(n))
+
+kable(type_summary, caption="Tumor type", format="markdown")
+
+table(g1.clinic$Recurr.status) # 1 tumor unknown
+```
+
+#### Sex
+```{R sex1}
+g_counts <- g1.clinic %>%
+  filter(Gender != "") %>%
+  group_by(Gender) %>%
+  summarise(Count = n())
+  
+ggplot(g_counts, aes(x = Gender, y = Count)) +
+  geom_bar(stat = 'identity', width=0.5, fill = c('#bcb58c', '#62a3bf')) +
+  geom_text(aes(label= Count), vjust=0, hjust=0.45, size=3.2) +
+  theme_bw() + theme(aspect.ratio = 4/3)
+
+```
+
+
+#### Age
+```{R age1}
+age.1 <- as.numeric(g1.clinic$Age[!is.na(g1.clinic$Age)])
+age_sum <- g1.clinic %>%
+  select(Age) %>%
+  summarise(md.age = mean(Age, na.rm = T))
+print(age_sum)
+max(age.1); min(age.1)
+
+ggplot(g1.clinic, aes(Age)) +
+  geom_histogram(aes(y=..count..), alpha=0.5, fill = '#bcd4e6', binwidth=0.7) +
+  geom_vline(data=age_sum, aes(xintercept=md.age), lty=2, size=1) +
+  scale_y_continuous(labels=scales::comma) +
+  ylab("Count") +
+  ggtitle("Age at initial pathologic diagnosis") + 
+  labs(x="Ages") +
+  theme_bw() 
+
+```
+
+
+#### Stage
+```{R stage1}
+stage_sum <- g1.clinic %>%
+  filter(TNM.staging != "") %>%
+  group_by(TNM.staging) %>%
+  summarise(Count = n())
+
+ggplot(stage_sum, aes(x=TNM.staging, y=Count, fill=TNM.staging)) +
+  geom_bar(stat='identity', width=0.6) + 
+  scale_fill_brewer(palette='Pastel1') +
+#$scale_y_continuous(limits=c(0,200)) +
+  geom_text(aes(label= Count), vjust=0, hjust=0.45, size=3.2) +
+  theme_bw() + ylab("") + xlab("Tumor Stage") +
+  theme(legend.position = "none")
+```
+
+
+#### Save into Rdata
+```{R save1}
+save(g1.clinic, file=file.path(data.dir, 'hcc_GSE14520_1.Rdata'))
+```
+
+### Group2 GPL3921
+```{R}
+type_summary <- g2.clinic %>% 
+  select(ID, Tissue.Type) %>%
+  group_by(Tissue.Type) %>%
+  summarise(n = n()) %>%
+  mutate(freq = n / sum(n))
+
+kable(type_summary, caption="Tumor type", format="markdown")
+
+table(g2.clinic$Recurr.status) # 1 tumor unknown
+```
+
+
+#### Sex
+```{R sex2}
+g_counts <- g2.clinic %>%
+  filter(Gender != "") %>%
+  group_by(Gender) %>%
+  summarise(Count = n())
+  
+ggplot(g_counts, aes(x = Gender, y = Count)) +
+  geom_bar(stat = 'identity', width=0.5, fill = c('#bcb58c', '#62a3bf')) +
+  geom_text(aes(label= Count), vjust=0, hjust=0.45, size=3.2) +
+  theme_bw() + theme(aspect.ratio = 4/3)
+
+```
+
+
+#### Age
+```{R age2}
+age.2 <- as.numeric(g2.clinic$Age[!is.na(g2.clinic$Age)])
+age_sum <- g2.clinic %>%
+  select(Age) %>%
+  summarise(md.age = mean(Age, na.rm = T))
+print(age_sum)
+max(age.2); min(age.2)
+
+ggplot(g2.clinic, aes(Age)) +
+  geom_histogram(aes(y=..count..), alpha=0.5, fill = '#bcd4e6', binwidth=0.7) +
+  geom_vline(data=age_sum, aes(xintercept=md.age), lty=2, size=1) +
+  scale_y_continuous(labels=scales::comma) +
+  ylab("Count") +
+  ggtitle("Age at initial pathologic diagnosis") + 
+  labs(x="Ages") +
+  theme_bw() 
+
+```
+
+
+
+#### Stage
+```{R stage2}
+stage_sum <- g2.clinic %>%
+  filter(TNM.staging != "") %>%
+  group_by(TNM.staging) %>%
+  summarise(Count = n())
+
+ggplot(stage_sum, aes(x=TNM.staging, y=Count, fill=TNM.staging)) +
+  geom_bar(stat='identity', width=0.6) + 
+  scale_fill_brewer(palette='Pastel1') +
+#$scale_y_continuous(limits=c(0,200)) +
+  geom_text(aes(label= Count), vjust=0, hjust=0.45, size=3.2) +
+  theme_bw() + ylab("") + xlab("Tumor Stage") +
+  theme(legend.position = "none")
+```
+
+
+#### Save into Rdata
+```{R save2}
+save(g2.clinic, file=file.path(data.dir, 'hcc_GSE14520_2.Rdata'))
+```

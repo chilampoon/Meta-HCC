@@ -1,0 +1,122 @@
+---
+title: "GSE63898"
+date: "4/4/2019"
+output: html_document
+---
+
+
+### Download and process
+
+[GSE63898](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE63898):
+
+- Platform: GPL13667 Affymetrix Human Genome U219 Array
+- 228 hepatocellular carcinoma and 168 cirrhotic samples
+- Samples obtained from two institutions of theHCC Genomic Consortium: IRCCS Istituto Nazio-nale Tumori (Milan, Italy; n=217) and HospitalClinic  (Barcelona,  Spain;  n=31)
+
+```{bash, eval=F}
+cat GSE63898_series_matrix.txt | grep '^!Sample' | sed 's/^!//g' > clin.info.txt
+```
+
+```{R, include=F}
+suppressPackageStartupMessages({
+  library(dplyr)
+  library(knitr)
+  library(ggplot2)
+  library(stringr)
+})
+```
+
+
+### Load
+```{R load}
+data.dir <- '~/hcc/data/GSE63898'
+clin <- read.delim(file.path(data.dir, 'clin.info.txt'), header=F)
+clin <- as.data.frame(t(clin))
+colnames(clin) <- unlist(clin[1,])
+clin <- clin[-1, ]
+rownames(clin) <- seq(1, nrow(clin))
+```
+
+
+### Sample Type
+```{R}
+type.df <- clin[, c(2, 8)]
+type_summary <- type.df %>% 
+  group_by(Sample_source_name_ch1) %>%
+  summarise(n = n()) %>%
+  mutate(freq = n / sum(n))
+
+kable(type_summary, caption="Tumor type", format="markdown")
+```
+
+### Sex
+```{R sex}
+colnames(clin)[11] <- 'Gender'
+clin$Gender <- gsub('^.*: ', '', clin$Gender)
+sex.df <- clin[, c(2,11)]
+
+g_counts <- sex.df %>%
+  group_by(Gender) %>%
+  summarise(Count = n())
+  
+ggplot(g_counts, aes(x = Gender, y = Count)) +
+  geom_bar(stat = 'identity', width=0.5, fill = c('#bcb58c', '#62a3bf', 'gold')) +
+  geom_text(aes(label= Count), vjust=0, hjust=0.53, size=3.2) +
+  theme_bw() + theme(aspect.ratio = 4/3)
+```
+
+
+#### Age
+```{R}
+colnames(clin)[12] <- 'Age'
+clin$Age <- as.numeric(gsub('^.*: ', '', clin$Age))
+ages <- as.numeric(clin$Age[!is.na(clin$Age)])
+
+age.df <- clin[, c(2, 12)]
+age_md <- age.df %>%
+  select(Age) %>%
+  summarise(md.age = median(Age, na.rm = T))
+print(age_md)
+max(ages); min(ages)
+
+ggplot(age.df, aes(Age)) +
+  geom_histogram(aes(y=..count..), alpha=0.5, fill = '#bcd4e6', binwidth=0.7) +
+  geom_vline(data=age_md, aes(xintercept=md.age), lty=2, size=1) +
+  scale_y_continuous(labels=scales::comma) +
+  ylab("Count") +
+  ggtitle("Age at initial pathologic diagnosis") + 
+  labs(x="Ages") +
+  theme_bw() 
+```
+
+
+### Stage
+```{R stage}
+colnames(clin)[13] <- 'Stage'
+clin$Stage <- as.factor(gsub('^.*: ', '', clin$Stage))
+
+stage.df <- clin[, c(2,13)]
+stage_sum <- stage.df %>%
+  group_by(Stage) %>%
+  summarise(Count = n())
+
+ggplot(stage_sum, aes(x=Stage, y=Count, fill=Stage)) +
+  geom_bar(stat='identity', width=0.6) + 
+  scale_fill_brewer(palette='Pastel1') +
+#$scale_y_continuous(limits=c(0,200)) +
+  geom_text(aes(label= Count), vjust=0, hjust=0.45, size=3.2) +
+  theme_bw() + ylab("") + xlab("Tumor Stage") +
+  theme(legend.position = "none")
+
+```
+
+
+### Institutes
+Sample names start with B or M. 
+
+
+### Save Rdata
+```{R save}
+save(clin, file=file.path(data.dir, 'hcc_GSE63898.Rdata'))
+```
+

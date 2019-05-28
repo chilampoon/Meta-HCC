@@ -1,0 +1,41 @@
+---
+title: "GSE64041"
+date: "4/4/2019"
+output: html_document
+---
+
+
+### Download and process
+
+[GSE64041](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE64041):
+
+- Platform: GPL6244	Affymetrix Human Gene 1.0 ST Array [transcript (gene) version]
+- The data were preprocessed using the robust multiar-ray normalization  procedure as implemented in the oligo  package of the Bioconductor/R  statistical software.
+
+```{bash, eval=F}
+cat GSE64041_series_matrix.txt |grep '^!Sample' | sed 's/^!//g' > clin.info.txt
+```
+
+
+### Clean clin info
+```{R}
+data.dir <- '~/hcc/data/GSE64041'
+clin <- read.delim(file.path(data.dir, 'clin.info.txt'), header = F)
+clin <- as.data.frame(t(clin))
+colnames(clin) <- unlist(clin[1,])
+clin <- clin[-1,]
+rownames(clin) <- seq(1, nrow(clin))
+```
+
+
+#### Tissue type
+```{R}
+table(clin[,8])
+table(clin[,10])
+```
+
+
+### Save Rdata
+```{R}
+save(clin, file=file.path(data.dir, 'hcc_GSE64041.Rdata'))
+```

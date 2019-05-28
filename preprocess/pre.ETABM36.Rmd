@@ -1,0 +1,93 @@
+---
+title: "E-TABM-36"
+date: "4/3/2019"
+output: html_document
+---
+
+## Download
+
+Files were from [E-TABM-36](https://www.ebi.ac.uk/arrayexpress/experiments/E-TABM-36/) on ArrayExpress, it's a project  from french Ligue Nationale Contre le Cancer
+
+- Platform: Affymetrix HG-U133A GeneChips arrays
+- 57 tumoral & 5 non-tumor samples
+
+
+## Exploratory data analysis
+
+```{R set up}
+suppressPackageStartupMessages({
+  library(dplyr)
+  library(knitr)
+  library(ggplot2)
+})
+```
+
+
+```{R load}
+data.dir <- '~/hcc/data/ETABM36'
+clinic <- read.delim(file.path(data.dir, 'E-TABM-36.sdrf.txt'))
+```
+
+### Sample type
+Hepatocellular adenoma samples were excluded.
+```{R}
+clinic <- clinic %>% filter(Factor.Value..DiseaseState. != 'hepatocellular adenoma')
+
+type_summary <- clinic %>% 
+  select(Source.Name, Factor.Value..DiseaseState.) %>%
+  group_by(Factor.Value..DiseaseState.) %>%
+  summarise(n = n())
+
+kable(type_summary, caption="Tumor type", format="markdown")
+
+clinic$Factor.Value..DiseaseState. <- gsub('al .*$', '', clinic$Factor.Value..DiseaseState.)
+```
+
+> Note that the non-tumor samples are all `Pool` ones which had no sex or age or other information.
+
+
+### Gender
+```{R}
+g_counts <- clinic %>%
+  filter(Characteristics..Sex. %in% c('female', 'male')) %>%
+  group_by(Characteristics..Sex.) %>%
+  summarise(Count = n())
+  
+ggplot(g_counts, aes(x = Characteristics..Sex., y = Count)) +
+  geom_bar(stat = 'identity', width=0.5, fill = c('#bcb58c', '#62a3bf')) +
+  geom_text(aes(label= Count), vjust=0, hjust=0.45, size=3.2) +
+  xlab('Gender') +
+  theme_bw() + theme(aspect.ratio = 4/3)
+
+```
+
+
+### Age
+```{R}
+age_sum <- clinic %>%
+  select(Factor.Value..Age.) %>%
+  summarise(md.age = median(Factor.Value..Age., na.rm = T))
+print(age_sum)
+
+ggplot(clinic, aes(Factor.Value..Age.)) +
+  geom_histogram(aes(y=..count..), alpha=0.5, fill = '#bcd4e6', binwidth=0.7) +
+  geom_vline(data=age_sum, aes(xintercept=md.age), lty=2, size=1) +
+  scale_y_continuous(labels=scales::comma) +
+  ylab("Count") +
+  ggtitle("Age at initial pathologic diagnosis") + 
+  labs(x="Ages") +
+  theme_bw() 
+
+```
+
+
+### Stage
+No stage information.
+
+
+
+### Save into Rdata
+```{R save, eval=F}
+save(clinic, file=file.path(data.dir, 'hcc_ETABM36.Rdata'))
+```
+

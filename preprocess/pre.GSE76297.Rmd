@@ -1,0 +1,39 @@
+---
+title: "GSE76297"
+date: "4/4/2019"
+output: html_document
+---
+
+### Download and process
+
+[GSE76297](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE76297) and its [paper](https://www.cell.com/cancer-cell/fulltext/S1535-6108(17)30205-2):
+
+- A set of 398 surgical paired tumors and nontumor specimens derived from 199 sequential patients of the TIGER-LC cohort (130 ICC patients and 69 HCC patients) were used in this study
+
+- Platform:
+
+
+```{bash,eval=F}
+cat GSE76297_series_matrix.txt |grep '^!Sample' | sed 's/^!//g' > clin.info.txt
+```
+
+
+```{R}
+data.dir <- '~/hcc/data/GSE76297'
+clin <- read.delim(file.path(data.dir, 'clin.info.txt'), header=F)
+clin <- as.data.frame(t(clin))
+colnames(clin) <- unlist(clin[1,])
+clin <- clin[-1, ]
+rownames(clin) <- seq(1, nrow(clin))
+```
+
+```{R}
+table(clin[,8])
+clin <- clin[grep('HCC', clin[,8]),]
+table(clin[,8])
+```
+
+### Save Rdata
+```{r}
+save(clin, file=file.path(data.dir, 'hcc_GSE76297.Rdata'))
+```

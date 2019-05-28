@@ -1,0 +1,107 @@
+---
+title: "GSE36376"
+date: "4/3/2019"
+output: html_document
+---
+
+### Download and preposses
+
+[GSE36376](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE36376):
+
+- 286 HCC patients from South Korea
+
+- Illumina Human HT-12 v4 BeadChips, BeadChips were scanned on the Illumina BeadArray Reader using Illumina BeadArray Reader image data acquisition software
+
+- Series Matrix: The intensities of the probes transformed by base 2 logarithm were normalized using the quantile normalization method
+
+
+
+```{bash, eval=F}
+cat GSE36376_series_matrix.txt |grep '^!Sample_' | sed 's/^!//g' > clin.info.txt
+
+cat GSE36376_non-normalized.txt |grep -v '^#'|sed '1d;2d' > non.norm.txt
+awk -F'\t' 'NR==1{for(i=1; i<=NF; i++) if($i ~ /SAMPLE/ || $i ~ /ID_REF/) {a[i]++;} } {for (i in a) printf "%s\t", $i; printf "\n"}' non.norm.txt > non_norm.txt
+rm non.norm.txt 
+```
+
+```{R, include=F}
+suppressPackageStartupMessages({
+  library(dplyr)
+  library(knitr)
+  library(ggplot2)
+  library(stringr)
+})
+```
+
+
+### Load
+```{R}
+data.dir <- '~/hcc/data/GSE36376'
+clin <- read.delim(file.path(data.dir, 'clin.info.txt'), header=F)
+clin <- as.data.frame(t(clin))
+colnames(clin) <- unlist(clin[1,])
+clin <- clin[-1, ]
+rownames(clin) <- seq(1, nrow(clin))
+colnames(clin)[20] <- 'Sample_order'
+```
+
+
+### Sample type
+```{R type}
+colnames(clin)[10] <- 'Tissue_type'
+clin$Tissue_type <- gsub('tissue: adjacent non-tumor liver', 'non-tumor', clin$Tissue_type)
+clin$Tissue_type <- gsub('tissue: liver tumor', 'tumor', clin$Tissue_type)
+
+type_summary <- clin %>% 
+  select(Sample_title, Tissue_type) %>%
+  group_by(Tissue_type) %>%
+  summarise(n = n()) %>%
+  mutate(freq = n / sum(n))
+
+kable(type_summary, caption="Tumor type", format="markdown")
+
+```
+
+
+### Stage (AJCC)
+```{R stage}
+colnames(clin)[11] <- 'AJCC_stage'
+clin$AJCC_stage <- gsub('^.*: ', '', clin$AJCC_stage)
+clin$AJCC_stage <- gsub('[abc]$', '', clin$AJCC_stage)
+
+# Replace 1,2,3,4 into latin digits
+latin <- c('I', 'II', 'III', 'IV')
+names(latin) <- c(1:4)
+clin$AJCC_stage <- str_replace_all(clin$AJCC_stage, latin)
+
+
+stage_sum <- clin %>%
+  group_by(AJCC_stage) %>%
+  summarise(Count = n())
+
+ggplot(stage_sum, aes(x=AJCC_stage, y=Count, fill=AJCC_stage)) +
+  geom_bar(stat='identity', width=0.6) + 
+  scale_fill_brewer(palette='Pastel1') +
+#$scale_y_continuous(limits=c(0,200)) +
+  geom_text(aes(label= Count), vjust=0, hjust=0.45, size=3.2) +
+  theme_bw() + ylab("") + xlab("Tumor AJCC Stage") +
+  theme(legend.position = "none")
+```
+
+
+### Observe non normalized data
+```{R, eval=F}
+expr <- read.delim(file.path(data.dir, 'non.norm.txt'), sep="\t", header = T, as.is = F, check.names = F)
+expr <- expr[, -grep("Pval", colnames(expr))]
+anno <- read.delim(file.path(data.dir, 'GPL10558-50081.txt'), comment.char = '#', sep="\t", header=T)
+anno <- anno[anno$ID %in% expr$ID_REF, ]
+colnames(anno)[1] <- 'ID_REF'
+exprs <- merge(anno[, c('ID_REF', 'Symbol')], expr, by='ID_REF')
+```
+
+
+
+### Save into Rdata
+```{R, eval=F}
+save(clin, anno, exprs, file=file.path(data.dir, 'hcc_GSE36376.Rdata'))
+```

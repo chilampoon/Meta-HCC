@@ -1,0 +1,48 @@
+---
+title: "GSE22058"
+date: "4/4/2019"
+output: html_document
+---
+
+### Download and process
+
+[GSE22058](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE22058):
+
+- Platform: GPL6793 Rosetta/Merck Human RSTA Custom Affymetrix 1.0 microarray
+- 192 samples -- 96 resected tumor and 96 adjacent non-tumor liver tissues -- were collected from 96 patients who had undergone hepatectomy for curative treatment of HCC at Queen Mary Hospital, Pokfulam, Hong Kong between 1990 and 2007.
+
+
+```{bash, eval=F}
+cat GSE22058-GPL6793_series_matrix.txt | grep '^!Sample_' |sed 's/^!//g' > clin.info.txt
+```
+
+
+#### Load
+```{R}
+data.dir <- '~/hcc/data/GSE22058'
+clin <- read.delim(file.path(data.dir, 'clin.info.txt'), header=F)
+clin <- as.data.frame(t(clin))
+colnames(clin) <- unlist(clin[1, ])
+clin <- clin[-1, ]
+rownames(clin) <- seq(1, nrow(clin))
+```
+
+
+#### Clean clinic info
+```{R clean}
+colnames(clin)[10] <- 'Subject_ID'
+colnames(clin)[11] <- 'Tissue_type'
+table(clin$Tissue_type)
+clin$Tissue_type <- gsub('tissue: liver tumor', 'tumor', clin$Tissue_type)
+clin$Tissue_type <- gsub('tissue: adjacent liver non-tumor', 'non_tumor', clin$Tissue_type)
+table(clin$Tissue_type)
+
+# subject no.
+length(unique(clin$Subject_ID))
+```
+
+
+### Save Rdata
+```{R}
+save(clin, file=file.path(data.dir, 'hcc_GSE22058.Rdata'))
+```

@@ -1,0 +1,39 @@
+---
+title: "GSE25097"
+date: "4/4/2019"
+output: html_document
+---
+
+## Download and process
+
+[GSE25097](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE25097):
+
+- 268 HCC tumor, 243 adjacent non-tumor, 40 cirrhotic and 6 healthy liver samples
+- Platform: GPL10687	Rosetta/Merck Human RSTA Affymetrix 1.0 microarray, Custom CDF
+
+---
+
+```{bash, eval=F}
+cat GSE25097_series_matrix.txt | grep '^!Sample' | sed 's/^!//g' > clin.info.txt
+```
+
+
+```{R}
+data.dir <- '~/hcc/data/GSE25097'
+clin <- read.delim(file.path(data.dir, 'clin.info.txt'), header=F)
+clin <- as.data.frame(t(clin))
+colnames(clin) <- unlist(clin[1, ])
+clin <- clin[-1, ]
+rownames(clin) <- seq(1, nrow(clin))
+```
+
+### Tissue type
+```{R type}
+colnames(clin)[8] <- 'Tissue_type'
+table(clin$Tissue_type)
+```
+
+## Save Rdata
+```{R}
+save(clin, file=file.path(data.dir, 'hcc_GSE25097.Rdata'))
+```

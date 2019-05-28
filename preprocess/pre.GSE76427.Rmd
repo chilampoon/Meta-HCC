@@ -1,0 +1,136 @@
+---
+title: "GSE76427"
+date: "4/4/2019"
+output: html_document
+---
+
+
+### Doawload and process
+
+[GSE76427](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE76427):
+
+- 115 PT tissue samples and 52 ANTT samples derived from 115 HCC patients
+- Platform: GPL10558	Illumina HumanHT-12 V4.0 expression beadchip
+
+```{bash,eval=F}
+cat GSE76427_series_matrix.txt | grep '^!Sample' | sed 's/^!//g' > clin.info.txt
+```
+
+
+```{R setup, include=F}
+suppressPackageStartupMessages({
+  library(dplyr)
+  library(knitr)
+  library(ggplot2)
+  library(stringr)
+})
+```
+
+
+```{R}
+data.dir <- '~/hcc/data/GSE76427'
+clin <- read.delim(file.path(data.dir, 'clin.info.txt'), header=F)
+clin <- as.data.frame(t(clin))
+colnames(clin) <- unlist(clin[1,])
+clin <- clin[-1, ]
+rownames(clin) <- seq(1, nrow(clin))
+```
+
+
+### Tissue type
+```{R}
+colnames(clin)[8] <- 'Tissue_type'
+type.df <- clin[, c(2, 8)]
+type_summary <- type.df %>% 
+  group_by(Tissue_type) %>%
+  summarise(n = n()) %>%
+  mutate(freq = n / sum(n))
+
+kable(type_summary, caption="Tumor type", format="markdown")
+```
+
+
+### Sex
+```{R sex}
+colnames(clin)[18] <- 'Gender'
+clin$Gender <- gsub('^.*: ', '', clin$Gender)
+clin$Gender <- gsub('1', 'Male', clin$Gender)
+clin$Gender <- gsub('2', 'Female', clin$Gender)
+
+sex.df <- clin[, c(2,18)]
+g_counts <- sex.df %>%
+  filter(Gender !="") %>%
+  group_by(Gender) %>%
+  summarise(Count = n())
+  
+ggplot(g_counts, aes(x = Gender, y = Count)) +
+  geom_bar(stat = 'identity', width=0.5, fill = c('#bcb58c', '#62a3bf')) +
+  geom_text(aes(label= Count), vjust=0, hjust=0.53, size=3.2) +
+  theme_bw() + theme(aspect.ratio = 4/3)
+
+```
+
+### Age
+```{R age}
+colnames(clin)[17] <- 'Age'
+clin$Age <- as.numeric(gsub('^.*: ', '', clin$Age))
+age.df <- clin[, c(2, 17)]
+age_md <- age.df %>%
+  select(Age) %>%
+  summarise(md.age = median(Age, na.rm = T))
+age_md
+
+ggplot(age.df, aes(Age)) +
+  geom_histogram(aes(y=..count..), alpha=0.5, fill = '#bcd4e6', binwidth=0.7) +
+  geom_vline(data=age_md, aes(xintercept=md.age), lty=2, size=1) +
+  scale_y_continuous(labels=scales::comma) +
+  ylab("Count") +
+  ggtitle("Age at initial pathologic diagnosis") + 
+  labs(x="Ages") +
+  theme_bw() 
+```
+
+
+### Stage
+```{R}
+colnames(clin)[19] <- 'BCLC_Stage'
+colnames(clin)[20] <- 'TNM_Stage'
+clin$BCLC_Stage <- as.factor(gsub('^.*: ', '', clin$BCLC_Stage))
+clin$TNM_Stage <- as.factor(gsub('^.*: ', '', clin$TNM_Stage))
+clin$TNM_Stage <- as.factor(gsub('[ABC]$', '', clin$TNM_Stage))
+clin$TNM_Stage <- as.factor(gsub('N', 'NA', clin$TNM_Stage))
+
+stage.df1 <- clin[, c(2,19)]
+stage_sum1 <- stage.df1 %>%
+  filter(BCLC_Stage != "") %>%
+  group_by(BCLC_Stage) %>%
+  summarise(Count = n())
+
+stage.df2 <- clin[, c(2,20)]
+stage_sum2 <- stage.df2 %>%
+  filter(TNM_Stage != "") %>%
+  group_by(TNM_Stage) %>%
+  summarise(Count = n())
+
+ggplot(stage_sum1, aes(x=BCLC_Stage, y=Count, fill=BCLC_Stage)) +
+  geom_bar(stat='identity', width=0.6) + 
+  scale_fill_brewer(palette='Pastel1') +
+#$scale_y_continuous(limits=c(0,200)) +
+  geom_text(aes(label= Count), vjust=0, hjust=0.45, size=3.2) +
+  theme_bw() + ylab("") + xlab("Tumor BCLC Stage") +
+  theme(legend.position = "none")
+
+ggplot(stage_sum2, aes(x=TNM_Stage, y=Count, fill=TNM_Stage)) +
+  geom_bar(stat='identity', width=0.6) + 
+  scale_fill_brewer(palette='Pastel1') +
+#$scale_y_continuous(limits=c(0,200)) +
+  geom_text(aes(label= Count), vjust=0, hjust=0.45, size=3.2) +
+  theme_bw() + ylab("") + xlab("Tumor TNM Stage") +
+  theme(legend.position = "none")
+```
+
+
+### Save Rdata
+```{R}
+save(clin, file=file.path(data.dir, 'hcc_GSE76427.Rdata'))
+```

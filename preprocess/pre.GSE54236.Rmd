@@ -1,0 +1,88 @@
+---
+title: "GSE54236"
+date: "4/4/2019"
+output: html_document
+---
+
+
+## Download and process
+
+[GSE54236](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE54236):
+
+- Platform: GPL6480	Agilent-014850 Whole Human Genome Microarray 4x44K G4112F (Probe Name version)
+- The Agilent Feature Extraction Software was used to read out and process the microarray image files
+
+```{bash, eval=F}
+cat GSE54236_series_matrix.txt | grep '^!Sample' | sed 's/^!//g' > clin.info.txt
+```
+
+
+```{R, include=F}
+suppressPackageStartupMessages({
+  library(dplyr)
+  library(knitr)
+  library(ggplot2)
+  library(stringr)
+})
+```
+
+
+Series matrix should be used...
+
+### Process clin info
+```{R}
+data.dir <- '~/hcc/data/GSE54236'
+clin <- read.delim(file.path(data.dir, 'clin.info.txt'), header=F)
+clin <- as.data.frame(t(clin))
+colnames(clin) <- unlist(clin[1,])
+clin <- clin[-1, ]
+rownames(clin) <- seq(1, nrow(clin))
+```
+
+### Patient number
+```{R}
+sub.id <- gsub("(.*_)([0-9]+)$", "\\2", clin$Sample_title)
+sub.id <- gsub("^.*T_.*_", "", sub.id)
+sub.id <- gsub("r$", "", sub.id)
+length(unique(sub.id))
+clin$Subject_ID <- sub.id
+```
+
+
+```{R}
+colnames(clin)[8] <- 'Tissue_type'
+clin$Tissue_type <- gsub('Biopsy of ', '', clin$Tissue_type)
+
+type.df <- clin[, c(2,8)]
+type_summary <- type.df %>% 
+  group_by(Tissue_type) %>%
+  summarise(n = n()) %>%
+  mutate(freq = n / sum(n))
+
+kable(type_summary, caption="Tumor type", format="markdown")
+```
+
+
+### Sex
+```{R sex}
+colnames(clin)[12] <- 'Gender'
+clin$Gender <- gsub('^.*: ', '', clin$Gender)
+sex.df <- unique(clin[, c(12,ncol(clin))])
+
+g_counts <- sex.df %>%
+  group_by(Gender) %>%
+  summarise(Count = n())
+  
+ggplot(g_counts, aes(x = Gender, y = Count)) +
+  geom_bar(stat = 'identity', width=0.5, fill = c('#bcb58c', '#62a3bf')) +
+  geom_text(aes(label= Count), vjust=0, hjust=0.53, size=3.2) +
+  theme_bw() + theme(aspect.ratio = 4/3)
+
+```
+
+
+### Save Rdata
+```{R}
+save(clin, file=file.path(data.dir, 'hcc_GSE54236.Rdata'))
+```
+

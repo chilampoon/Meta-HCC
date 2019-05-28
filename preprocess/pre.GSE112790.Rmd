@@ -1,0 +1,60 @@
+---
+title: "GSE112790"
+date: "4/3/2019"
+output: html_document
+---
+
+
+## Download and process
+Data were downloaded from GEO [GSE112790](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE112790) whose patients were from Tokyo Medical and Dental University
+
+- 183 tumor specimens and 15 adjacent liver tissues obtained from patients with metastasis of colorectal cancer who had not received chemotherapy
+- Platform: GeneChip Human Genome U133 Plus 2.0 Array (Affymetrix)
+
+```{bash, eval=F}
+cat GSE112790_series_matrix.txt | grep '^!Sample_' | sed 's/^!//g' > clinic.info.txt
+```
+
+
+```{R set up}
+suppressPackageStartupMessages({
+  library(dplyr)
+  library(knitr)
+  library(ggplot2)
+  library(stringr)
+})
+```
+
+```{R load}
+data.dir <- '~/hcc/data/GSE112790'
+clinic <- read.delim(file.path(data.dir, 'clinic.info.txt'), header = F)
+clinic <- as.data.frame(t(clinic))
+colnames(clinic) <- unlist(clinic[1,])
+clinic <- clinic[-1, ]
+rownames(clinic) <- seq(1, nrow(clinic))
+```
+
+
+## Exploratory data analysis
+### Sample type
+```{R type}
+type_summary <- clinic %>% 
+  select(Sample_title, Sample_characteristics_ch1) %>%
+  group_by(Sample_characteristics_ch1) %>%
+  summarise(n = n()) %>%
+  mutate(freq = n / sum(n))
+
+kable(type_summary, caption="Tumor type", format="markdown")
+
+clinic$Sample_characteristics_ch1 <- gsub('tissue: Normal liver', 'Normal', clinic$Sample_characteristics_ch1)
+clinic$Sample_characteristics_ch1 <- gsub('tissue: liver cancer tumorous tissue', 'Tumor', clinic$Sample_characteristics_ch1)
+```
+
+
+### Race
+They were all Japanese.
+
+### Save into Rdata
+```{R}
+save(clinic, file=file.path(data.dir, 'hcc_GSE112790.Rdata'))
+```
