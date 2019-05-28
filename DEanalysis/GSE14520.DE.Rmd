@@ -1,0 +1,147 @@
+---
+title: "DE analysis for GSE14520"
+output: html_document
+---
+
+Since GSE14520 is a microarray dataset, I use `.CEL` files downloaded from GEO then start to do limma DE analysis following limma user guide.
+
+Steps of my analysis refer to this post: [Tutorial: Analysing Microarray Data In Bioconductor](https://www.biostars.org/p/53870/).
+
+### Loading
+```{R}
+suppressPackageStartupMessages({
+  library(limma)
+  library(edgeR)
+  library(DESeq2)
+  library(stringr)
+  library(dplyr)
+  library(pheatmap)
+  library(gcrma)
+  library(affy)
+})
+
+source('~/hcc/scripts/functions.R')
+```
+
+
+### Read CEL data
+rma normalization: RMA - Robust Multi-Array Average expression measure, return log2 values. -> to be looked into details.
+```{R cel}
+setwd('~/hcc/data/GSE14520')
+# Group 1
+cels <- list.files('CEL/group1', pattern = 'CEL', full.names = T)
+raw <- ReadAffy(filenames=cels)
+
+# Perform RMA normalization 
+eset <- gcrma(raw)
+
+# Get the important stuff out of the data - the expression estimates for each array
+rma <- as.data.frame(exprs(eset))
+
+# Format values to 5 decimal places
+rma <- format(rma, digits=5)
+dim(rma)
+
+# Map probe sets to gene symbols or other annotations
+mapf <- read.delim('GPL571-17391.txt', header=T, comment.char='#')
+mapf$Gene.Symbol <- sapply(mapf$Gene.Symbol, function(x) str_split(x, ' /// ')[[1]][1])
+all(rownames(rma) %in% mapf$ID)
+rma$symbol <- rownames(rma)
+rma$symbol <- sapply(rma$symbol, function(x) as.character(mapf[mapf$ID == x, ]$Gene.Symbol))
+
+# select representative genes by IQR for duplicated ones
+IQR2 <- function(sub) {
+  if (length(sub) == 1) {
+    return (sub)
+  } else {
+    name <- as.character(unique(sub[,'symbol']))
+    sub <- sub[, which(colnames(sub) != 'symbol')]
+    iqrScore <- apply(sub, 1, IQR)
+    return (cbind(name, sub[which.max(iqrScore), ]))
+  }
+}
+
+gene.split <- split(1:nrow(rma), rma$symbol)
+filt.exp <- lapply(gene.split, function(x) IQR2(rma[x, ]))
+haha <- do.call(rbind, filt.exp)
+filt.exp <- haha[-1, -1]
+colnames(filt.exp) <- gsub('.CEL', '', colnames(filt.exp))
+``` 
+
+
+### DE analysis
+```{R dea}
+load("~/hcc/data/GSE14520/hcc_GSE14520_1.Rdata")
+# Remove normal id
+normal.id <- g1.clinic[g1.clinic$Tissue.Type == 'Normal',]$Affy_GSM
+expr <- filt.exp[ ,which(!colnames(filt.exp) %in% normal.id)]
+dim(expr)
+clinG1 <- g1.clinic[g1.clinic$Tissue.Type != 'Normal',]
+clinG1$Gender <- as.character(clinG1$Gender)
+tmp.g1 <- clinG1[clinG1$Gender!='',]
+for (i in 1:nrow(clinG1)) {
+  if (clinG1[i,]$ID %in% tmp.g1$ID) {
+    if (clinG1[i,]$Gender == '') {
+      clinG1[i,]$Gender <- tmp.g1[tmp.g1$ID==clinG1[i,]$ID,]$Gender
+    }
+  } else {
+    clinG1[i,]$Gender <- 'NA'
+  }
+}
+
+expr <- expr[ ,clinG1$Affy_GSM]
+all(colnames(expr)==clinG1$Affy_GSM)
+expr <- sapply(expr, as.numeric)
+rownames(expr) <- rownames(filt.exp)
+dens.plot(expr, getColors(ncol(expr)), c(0,0.5))
+```
+
+#### Create a design matrix and fitting
+```{R}
+tissue <- factor(ifelse(clinG1$Tissue.Type == 'Tumor', 1, 0))
+sex <- factor(clinG1$Gender)
+
+tumor <- 'tissue1'
+design <- model.matrix(~ tissue + sex)
+head(design, 5)
+
+fit <- lmFit(expr, design)
+fit <- eBayes(fit)
+ttable <- topTable(fit, number=Inf, coef=tumor)
+head(ttable, 15)
+limma::volcanoplot(fit, coef = tumor, highlight = 3, names = rownames(fit))
+limma::plotMA(fit, main = "GSE14520-1 HCC")
+```
+
+
+##### Significant gene numbers
+```{R}
+nrow(ttable[ttable$adj.P.Val < 0.01, ])
+nrow(ttable[(ttable$adj.P.Val < 0.01) & (abs(ttable$logFC) > log2(2)), ])
+nrow(ttable[(ttable$adj.P.Val < 0.01) & (abs(ttable$logFC) > log2(3)), ])
+```
+
+
+#### Heatmap
+```{R heatmap, fig.height=5, fig.weight=5}
+draw_heatmap <- function(expr, ttable, clin, list) {
+  hm_cdr <- data.frame(tumor=clin$Tissue.Type)
+  rownames(hm_cdr) <- colnames(expr)
+  tumor <- c("#99a599", "#37637f")
+  names(tumor) <- c('Non-Tumor', 'Tumor')
+  #stage <- c("#d7191c","#fdae61","#a1d99b","#2b83ba","#bababa")
+  #names(stage) <- c("I","II","III","IV","NA")
+  anno_colors <- list(tumor = tumor) # the name must be consistent
+  h <- pheatmap(expr[list, ], annotation_col=hm_cdr, annotation_colors=anno_colors, 
+                labels_row = list, show_colnames = F)
+  h
+}
+
+draw_heatmap(expr, ttable, clinG1, rownames(ttable)[1:30])
+```
+
+
+#### Save
+```{R save}
+save(clinG1, expr, ttable, file='DE_GSE14520_1.Rdata')
+```

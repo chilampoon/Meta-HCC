@@ -1,0 +1,175 @@
+---
+title: "ICGC.DE.Rmd"
+date: "4/21/2019"
+output: html_document
+---
+
+Differential expression analysis on ICGC LIRI-JP RNA-seq dataset.
+
+
+```{R set up}
+suppressPackageStartupMessages({
+  library(limma)
+  library(edgeR)
+  library(DESeq2)
+  library(dplyr)
+  library(pheatmap)
+  library(impute) 
+})
+
+source('~/hcc/scripts/functions.R')
+```
+
+
+## Preprocessing
+The `cancer2`, `cancer3` samples should be also primary tumors, and normal tissues are adjacency normal tissues, for instance: donor [DO50859](https://dcc.icgc.org/donors/DO50859/specimen)
+
+```{R}
+data.dir <- '~/hcc/data/ICGC'
+load(file.path(data.dir, 'hcc_LIRI-JP.Rdata'))
+
+samples <- merge(sample, subject, by = 'icgc_donor_id')
+```
+
+Since this dataset contains many `NA`s, it need to be filterd first.
+```{R filt, fig.width=8}
+# Gene level filter
+miss <- apply(count.df, 1, function(x) sum(is.na(x)))
+length(miss[miss>=223])
+count.df <- count.df[miss<223, ] # filter out > 50% missing
+dim(count.df)
+
+# Imputation
+count.new <- impute.knn(as.matrix(count.df))$data
+haha <- apply(count.new, 2, function(x) sum(is.na(x)))
+all(haha==0)
+
+count.new <- count.new[, match(samples$icgc_sample_id, colnames(count.new))]
+all(colnames(count.new)==samples$icgc_sample_id)
+dge <- DGEList(counts=count.new)
+group <- gsub('^.*_', '', samples$submitted_sample_id)
+group <- factor(gsub('[0-9+]', '', group))
+dge$samples$group <- group -> samples$submitted_sample_id
+table(rowSums(dge$counts==0)==ncol(dge))
+
+n.lcpm <- cpm(dge, log=T)
+# remove rows that consistently have zero or very low counts
+keep <- filterByExpr(dge, group=dge$samples$group)
+dge <- dge[keep, keep.lib.sizes=F]
+dim(dge)
+cpm <- cpm(dge)
+lcpm <- cpm(dge, log=T)
+
+col <- getColors(ncol(lcpm))
+par(mfrow=c(1 ,2))
+dens.plot(n.lcpm, col, c(0,0.6))
+dens.plot(lcpm, col, c(0,0.6))
+```
+
+### TMM normalization
+```{R norm}
+dge <- calcNormFactors(dge, method="TMM")
+dge$samples$norm.factors[1:5]
+```
+
+
+### Clursting samples
+```{R cluster}
+lcpm <- cpm(dge, log=T)
+
+col.group <- group
+levels(col.group) <-  brewer.pal(nlevels(group), "Set1")
+col.group <- as.character(col.group)
+plotMDS(lcpm, labels=NULL, pch=".", cex = 2.5, col=col.group)
+title(main="Sample groups")
+```
+
+
+### Differential expression analysis
+```{R}
+tissue <- factor(ifelse(group == 'Cancer', 1, 0))
+sex <- samples$donor_sex
+age <- samples$donor_age_at_diagnosis
+#stage <- samples$tumor_stage
+
+tumor <- 'tissue1'
+design <- model.matrix(~ tissue + sex + age)
+head(design, 5)
+```
+
+#### limma-voom
+```{R}
+v <- voom(dge, design, plot=T)
+vfit <- lmFit(v, design)
+efit <- eBayes(vfit)
+plotSA(efit, main="Final model: Mean-variance trend")
+```
+
+
+#### Top table
+```{R}
+tt <- topTable(efit, number=Inf, coef=tumor)
+head(tt, 15)
+limma::volcanoplot(efit, coef = tumor, highlight = 3, names = rownames(efit))
+limma::plotMA(efit, main = "TCGA HCC")
+```
+
+#### Significant gene numbers
+```{R}
+nrow(tt[tt$adj.P.Val < 0.01, ])
+nrow(tt[(tt$adj.P.Val < 0.01) & (abs(tt$logFC) > log2(2)), ])
+nrow(tt[(tt$adj.P.Val < 0.01) & (abs(tt$logFC) > log2(3)), ])
+```
+
+
+#### Heatmap
+```{R hm, fig.height=10, fig.width=12}
+draw_heatmap <- function(voomObj, topTable, phenoDF, list) {
+  hm_cdr <- phenoDF %>% select(submitted_sample_id, donor_tumour_stage_at_diagnosis)
+  rownames(hm_cdr) <- colnames(voomObj)
+  colnames(hm_cdr)  <- c('tumor', 'stage')
+  tumor <- c("#99a599", "#37637f")
+  names(tumor) <- c('Liver', 'Cancer')
+  stage <- c("#d7191c","#fdae61","#a1d99b","#2b83ba","#bababa")
+  names(stage) <- c("I","II","III","IV","NA")
+  anno_colors <- list(tumor = tumor,
+                      stage = stage) # the name must be consistent
+  h <- pheatmap(voomObj$E[list, ], annotation_col=hm_cdr, annotation_colors=anno_colors, 
+                labels_row = list, show_colnames = F)
+  h
+}
+
+draw_heatmap(v, tt, samples, rownames(tt)[1:50])
+```
+
+
+#### Jitter plot
+```{R}
+single.box <- function(v, phenoDF, id, tt){
+  t_pdata <- phenoDF %>% select(icgc_sample_id, submitted_sample_id)
+  colnames(t_pdata) <- c('Sample.ID', 'Sample.Type')
+  exp_list <- as.data.frame(v$E[rownames(v$E)==id, ])
+  exp_list$Sample.ID <- rownames(exp_list)
+  colnames(exp_list) <- c("counts", "Sample.ID")
+  mdf <- merge(exp_list, t_pdata, by="Sample.ID")
+  mdf$Sample.Type <- factor(mdf$Sample.Type)
+  symbol <- id
+  q_val <- tt[id, ]$adj.P.Val
+  
+  ggboxplot(mdf, x="Sample.Type", y="counts",
+            color="Sample.Type", palette="jco", main=paste0(symbol, "  q-val = ", formatC(q_val, format="e", digits=2)),
+            xlab="Tissue", ylab="logCPM", add="jitter", ggtheme = theme_bw())
+  
+}
+
+
+for (id in c('STAB2', 'CLEC4G', 'ADAMTS13')) {
+  print(single.box(v, samples, id, tt))
+}
+
+```
+
+### Save
+```{R save}
+save(samples, dge, v, tt, file=file.path(data.dir, 'DE.ICGC.Rdata'))
+```
