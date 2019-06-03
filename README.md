@@ -3,7 +3,7 @@
 
 ## Pilot study
 
-### Datsets
+### Datasets
 
 No. | Study    | Primary Tumor Num. | Adjacent Normal Num.| Total 
 :--:|:-----:|:-----------------:|:-------------------------:|:-----:
