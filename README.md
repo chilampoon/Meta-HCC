@@ -15,6 +15,7 @@ No. | Study    | Primary Tumor Num. | Adjacent Normal Num.| Total
 6 | GSE22058 | 100|97|197|
 7 | GSE25097 | 268|243|557|
 
+*Note that the true normal samples (cirrhosis or healthy) are not included in following analyese.*
 
 ### Workflow
 
