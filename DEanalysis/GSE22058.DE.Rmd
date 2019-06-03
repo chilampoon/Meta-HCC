@@ -1,0 +1,133 @@
+---
+title: "DE analysis for GSE22058"
+date: "6/1/2019"
+output: html_document
+---
+
+### Loading
+```{R setup}
+suppressPackageStartupMessages({
+  library(limma)
+  library(edgeR)
+  library(DESeq2)
+  library(stringr)
+  library(dplyr)
+  library(pheatmap)
+  library(gcrma)
+  library(affy)
+  library(makecdfenv)
+})
+
+source('~/hcc/scripts/functions.R')
+```
+
+
+#### Read CEL data
+Here the rmhu01aa520485 cdf file needs to be downloaded from [GEO](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GPL14189), then create a cdf environment.
+
+GPL14189 and GPL10687 both contain a `rmhu01aa520485` cdf file, though GPL10687 is the alternate of GPL6793 (the matching site of GSE22058), the probe ids in GPL14189 are matched with file `GPL6793-43483.txt', I chose to use the cdf in GPL14189 instead.
+
+```{R cel1}
+setwd('~/hcc/data/GSE22058')
+cels <- list.files('CEL', pattern = 'CEL', full.names = T)
+
+# Create a cdf package first for the rma
+rmhu01aa520485 <- make.cdf.env("GPL14189_rmhu01aa520485.cdf")
+raw <- ReadAffy(filenames=cels, cdfname = 'rmhu01aa520485')
+
+# Perform RMA normalization 
+eset <- rma(raw)
+
+# Get the important stuff out of the data - the expression estimates for each array
+rma <- as.data.frame(exprs(eset))
+
+# Format values to 5 decimal places
+rma <- format(rma, digits=5)
+colnames(rma) <- gsub('_.*$', '', colnames(rma))
+dim(rma)
+
+# Map probe sets to gene symbols or other annotations
+mapf <- read.delim('GPL6793-43483.txt', header=T, comment.char='#')
+mapf <- mapf[mapf$GeneSymbol != '', ]
+
+rma <- rma[which(rownames(rma) %in% mapf$ID), ]
+dim(rma)
+all(rownames(rma) %in% mapf$ID)
+rma$symbol <- rownames(rma)
+rma$symbol <- sapply(rma$symbol, function(x) as.character(mapf[mapf$ID == x, ]$GeneSymbol))
+
+IQR2 <- function(sub) {
+  if (length(sub) == 1) {
+    return (sub)
+  } else {
+    name <- as.character(unique(sub[,'symbol']))
+    sub <- sub[, which(colnames(sub) != 'symbol')]
+    iqrScore <- apply(sub, 1, IQR)
+    return (cbind(name, sub[which.max(iqrScore), ]))
+   }
+}
+
+gene.split <- split(1:nrow(rma), rma$symbol)
+filt.exp <- lapply(gene.split, function(x) IQR2(rma[x, ]))
+haha <- do.call(rbind, filt.exp)
+filt.exp <- haha[-1, -1]
+```
+
+
+#### DE analysis
+```{R dea}
+load("~/hcc/data/GSE22058/hcc_GSE22058.Rdata")
+expr <- filt.exp[ ,clin$Sample_geo_accession]
+all(colnames(expr)==clin$Sample_geo_accession)
+expr <- sapply(expr, as.numeric)
+rownames(expr) <- rownames(filt.exp)
+dens.plot(expr, getColors(ncol(expr)), c(0,0.5))
+```
+
+
+#### Create a design matrix and fitting
+```{R fit}
+tissue <- factor(ifelse(clin$Tissue_type == 'tumor', 1, 0))
+tumor <- 'tissue1'
+design <- model.matrix(~ tissue)
+head(design, 5)
+
+fit <- lmFit(expr, design)
+fit <- eBayes(fit)
+ttable <- topTable(fit, number=Inf, coef=tumor)
+head(ttable, 15)
+limma::volcanoplot(fit, coef = tumor, highlight = 3, names = rownames(fit))
+limma::plotMA(fit, main = "GSE22058 HCC")
+```
+
+
+##### Significant gene numbers
+```{R}
+nrow(ttable[ttable$adj.P.Val < 0.01, ])
+nrow(ttable[(ttable$adj.P.Val < 0.01) & (abs(ttable$logFC) > log2(2)), ])
+nrow(ttable[(ttable$adj.P.Val < 0.01) & (abs(ttable$logFC) > log2(3)), ])
+```
+
+##### Heatmap
+```{R heatmap, fig.height=5, fig.weight=5}
+draw_heatmap <- function(expr, ttable, clin, list) {
+  hm_cdr <- data.frame(tumor=clin$Tissue_type)
+  rownames(hm_cdr) <- colnames(expr)
+  tumor <- c("#99a599", "#37637f")
+  names(tumor) <- c('non_tumor', 'tumor')
+  #stage <- c("#d7191c","#fdae61","#a1d99b","#2b83ba","#bababa")
+  #names(stage) <- c("I","II","III","IV","NA")
+  anno_colors <- list(tumor = tumor) # the name must be consistent
+  h <- pheatmap(expr[list, ], annotation_col=hm_cdr, annotation_colors=anno_colors, 
+                labels_row = list, show_colnames = F)
+  h
+}
+
+draw_heatmap(expr, ttable, clin, rownames(ttable)[1:30])
+```
+
+
+#### Save
+```{R save}
+save(clin, expr, ttable, file='~/hcc/data/GSE22058/DE_GSE22058.Rdata')
+```

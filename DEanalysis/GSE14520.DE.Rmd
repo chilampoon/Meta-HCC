@@ -23,10 +23,10 @@ suppressPackageStartupMessages({
 source('~/hcc/scripts/functions.R')
 ```
 
-
-### Read CEL data
+### Group 1
+#### Read CEL data
 rma normalization: RMA - Robust Multi-Array Average expression measure, return log2 values. -> to be looked into details.
-```{R cel}
+```{R cel1}
 setwd('~/hcc/data/GSE14520')
 # Group 1
 cels <- list.files('CEL/group1', pattern = 'CEL', full.names = T)
@@ -49,7 +49,6 @@ all(rownames(rma) %in% mapf$ID)
 rma$symbol <- rownames(rma)
 rma$symbol <- sapply(rma$symbol, function(x) as.character(mapf[mapf$ID == x, ]$Gene.Symbol))
 
-# select representative genes by IQR for duplicated ones
 IQR2 <- function(sub) {
   if (length(sub) == 1) {
     return (sub)
@@ -58,7 +57,7 @@ IQR2 <- function(sub) {
     sub <- sub[, which(colnames(sub) != 'symbol')]
     iqrScore <- apply(sub, 1, IQR)
     return (cbind(name, sub[which.max(iqrScore), ]))
-  }
+   }
 }
 
 gene.split <- split(1:nrow(rma), rma$symbol)
@@ -69,13 +68,13 @@ colnames(filt.exp) <- gsub('.CEL', '', colnames(filt.exp))
 ``` 
 
 
-### DE analysis
-```{R dea}
+#### DE analysis
+```{R dea1}
 load("~/hcc/data/GSE14520/hcc_GSE14520_1.Rdata")
 # Remove normal id
 normal.id <- g1.clinic[g1.clinic$Tissue.Type == 'Normal',]$Affy_GSM
-expr <- filt.exp[ ,which(!colnames(filt.exp) %in% normal.id)]
-dim(expr)
+expr1 <- filt.exp[ ,which(!colnames(filt.exp) %in% normal.id)]
+dim(expr1)
 clinG1 <- g1.clinic[g1.clinic$Tissue.Type != 'Normal',]
 clinG1$Gender <- as.character(clinG1$Gender)
 tmp.g1 <- clinG1[clinG1$Gender!='',]
@@ -89,15 +88,16 @@ for (i in 1:nrow(clinG1)) {
   }
 }
 
-expr <- expr[ ,clinG1$Affy_GSM]
-all(colnames(expr)==clinG1$Affy_GSM)
-expr <- sapply(expr, as.numeric)
-rownames(expr) <- rownames(filt.exp)
-dens.plot(expr, getColors(ncol(expr)), c(0,0.5))
+expr1 <- expr1[ ,clinG1$Affy_GSM]
+all(colnames(expr1)==clinG1$Affy_GSM)
+expr1 <- sapply(expr1, as.numeric)
+rownames(expr1) <- rownames(filt.exp)
+dens.plot(expr1, getColors(ncol(expr1)), c(0,0.5))
 ```
 
+
 #### Create a design matrix and fitting
-```{R}
+```{R fit1}
 tissue <- factor(ifelse(clinG1$Tissue.Type == 'Tumor', 1, 0))
 sex <- factor(clinG1$Gender)
 
@@ -105,10 +105,10 @@ tumor <- 'tissue1'
 design <- model.matrix(~ tissue + sex)
 head(design, 5)
 
-fit <- lmFit(expr, design)
+fit <- lmFit(expr1, design)
 fit <- eBayes(fit)
-ttable <- topTable(fit, number=Inf, coef=tumor)
-head(ttable, 15)
+ttable1 <- topTable(fit, number=Inf, coef=tumor)
+head(ttable1, 15)
 limma::volcanoplot(fit, coef = tumor, highlight = 3, names = rownames(fit))
 limma::plotMA(fit, main = "GSE14520-1 HCC")
 ```
@@ -116,13 +116,13 @@ limma::plotMA(fit, main = "GSE14520-1 HCC")
 
 ##### Significant gene numbers
 ```{R}
-nrow(ttable[ttable$adj.P.Val < 0.01, ])
-nrow(ttable[(ttable$adj.P.Val < 0.01) & (abs(ttable$logFC) > log2(2)), ])
-nrow(ttable[(ttable$adj.P.Val < 0.01) & (abs(ttable$logFC) > log2(3)), ])
+nrow(ttable1[ttable1$adj.P.Val < 0.01, ])
+nrow(ttable1[(ttable1$adj.P.Val < 0.01) & (abs(ttable1$logFC) > log2(2)), ])
+nrow(ttable1[(ttable1$adj.P.Val < 0.01) & (abs(ttable1$logFC) > log2(3)), ])
 ```
 
 
-#### Heatmap
+##### Heatmap
 ```{R heatmap, fig.height=5, fig.weight=5}
 draw_heatmap <- function(expr, ttable, clin, list) {
   hm_cdr <- data.frame(tumor=clin$Tissue.Type)
@@ -137,11 +137,100 @@ draw_heatmap <- function(expr, ttable, clin, list) {
   h
 }
 
-draw_heatmap(expr, ttable, clinG1, rownames(ttable)[1:30])
+draw_heatmap(expr1, ttable1, clinG1, rownames(ttable1)[1:30])
 ```
+
+
+### Group 2
+#### Read CEL files
+```{R}
+# Group 2
+cels <- list.files('~/hcc/data/GSE14520/CEL/group2', pattern = 'CEL', full.names = T)
+raw <- ReadAffy(filenames=cels)
+
+# Perform RMA normalization 
+eset <- gcrma(raw)
+
+# Get the important stuff out of the data - the expression estimates for each array
+rma <- as.data.frame(exprs(eset))
+
+# Format values to 5 decimal places
+rma <- format(rma, digits=5)
+dim(rma)
+
+# Map probe sets to gene symbols or other annotations
+mapf <- read.delim('~/hcc/data/GSE14520/GPL3921-25447.txt', header=T, comment.char='#')
+mapf$Gene.Symbol <- sapply(mapf$Gene.Symbol, function(x) str_split(x, ' /// ')[[1]][1])
+all(rownames(rma) %in% mapf$ID)
+rma$symbol <- rownames(rma)
+rma$symbol <- sapply(rma$symbol, function(x) as.character(mapf[mapf$ID == x, ]$Gene.Symbol))
+
+gene.split <- split(1:nrow(rma), rma$symbol)
+filt.exp <- lapply(gene.split, function(x) IQR2(rma[x, ]))
+haha <- do.call(rbind, filt.exp)
+filt.exp <- haha[-1, -1]
+colnames(filt.exp) <- gsub('.CEL', '', colnames(filt.exp))
+```
+
+
+#### DE analysis
+```{R dea2}
+load("~/hcc/data/GSE14520/hcc_GSE14520_2.Rdata")
+g2.clinic$Gender <- as.character(g2.clinic$Gender)
+tmp.g2 <- g2.clinic[g2.clinic$Gender!='',]
+for (i in 1:nrow(g2.clinic)) {
+  if (g2.clinic[i,]$ID %in% tmp.g2$ID) {
+    if (g2.clinic[i,]$Gender == '') {
+      g2.clinic[i,]$Gender <- tmp.g2[tmp.g2$ID==g2.clinic[i,]$ID,]$Gender
+    }
+  } else {
+    g2.clinic[i,]$Gender <- 'NA'
+  }
+}
+
+expr2 <- filt.exp[ ,g2.clinic$Affy_GSM]
+all(colnames(expr2)==g2.clinic$Affy_GSM)
+expr2 <- sapply(expr2, as.numeric)
+rownames(expr2) <- rownames(filt.exp)
+dens.plot(expr2, getColors(ncol(expr2)), c(0,0.5))
+```
+
+
+#### Create a design matrix and fitting
+```{R fit2}
+tissue <- factor(ifelse(g2.clinic$Tissue.Type == 'Tumor', 1, 0))
+sex <- factor(g2.clinic$Gender)
+
+tumor <- 'tissue1'
+design <- model.matrix(~ tissue + sex)
+head(design, 5)
+
+fit <- lmFit(expr2, design)
+fit <- eBayes(fit)
+ttable2 <- topTable(fit, number=Inf, coef=tumor)
+head(ttable2, 15)
+limma::volcanoplot(fit, coef = tumor, highlight = 3, names = rownames(fit))
+limma::plotMA(fit, main = "GSE14520-2 HCC")
+```
+
+
+##### Significant gene numbers
+```{R}
+nrow(ttable2[ttable2$adj.P.Val < 0.01, ])
+nrow(ttable2[(ttable2$adj.P.Val < 0.01) & (abs(ttable2$logFC) > log2(2)), ])
+nrow(ttable2[(ttable2$adj.P.Val < 0.01) & (abs(ttable2$logFC) > log2(3)), ])
+```
+
+
+##### Heatmap
+```{R heatmap2, fig.height=5, fig.weight=5}
+draw_heatmap(expr2, ttable2, g2.clinic, rownames(ttable2)[1:30])
+```
+
 
 
 #### Save
 ```{R save}
-save(clinG1, expr, ttable, file='DE_GSE14520_1.Rdata')
+save(clinG1, expr1, ttable1, file='~/hcc/data/GSE14520/DE_GSE14520_1.Rdata')
+save(g2.clinic, expr2, ttable2, file='~/hcc/data/GSE14520/DE_GSE14520_2.Rdata')
 ```
